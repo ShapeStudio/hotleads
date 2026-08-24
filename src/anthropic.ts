@@ -50,11 +50,13 @@ export async function callStructured<T>(args: {
   signal?: AbortSignal;
   /**
    * Route through the Message Batches API: same request, half the token
-   * price, minutes of latency instead of seconds (Anthropic guarantees
-   * completion within an hour; most finish far sooner). Progress events
-   * degrade to start/done — batches don't stream.
+   * price. Most batches finish in minutes, but the ONLY guarantee is 24
+   * hours — so after `batchWaitMs` (default 10 min) the batch is canceled
+   * and the request falls back to the live API. Progress events degrade to
+   * start/done — batches don't stream.
    */
   batch?: boolean;
+  batchWaitMs?: number;
 }): Promise<{ output: T; searchesUsed: number; fetchesUsed: number }> {
   const model = args.model ?? DEFAULT_MODEL;
 
@@ -106,43 +108,26 @@ export async function callStructured<T>(args: {
     : {};
 
   if (args.batch) {
-    const batch = await args.client.messages.batches.create(
-      { requests: [{ custom_id: "structured", params: requestParams }] },
-      requestOptions,
-    );
-    const POLL_MS = 15_000;
-    for (;;) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-      if (args.signal?.aborted) {
-        // Best-effort cancel so an abandoned request stops billing.
-        await args.client.messages.batches.cancel(batch.id).catch(() => {});
-        throw new Error("aborted while waiting for batch result");
+    const message = await runBatchWithFallback<T>(args, requestParams, requestOptions);
+    if (message) {
+      let searchesUsed = 0;
+      let fetchesUsed = 0;
+      // The SDK's Message content union predates server tools — inspect raw.
+      for (const block of message.content as Array<{ type: string; name?: string }>) {
+        if (block.type === "server_tool_use" && block.name === "web_search") searchesUsed++;
+        else if (block.type === "server_tool_use" && block.name === "web_fetch") fetchesUsed++;
       }
-      const state = await args.client.messages.batches.retrieve(batch.id);
-      if (state.processing_status === "ended") break;
-    }
-    let message: Anthropic.Message | null = null;
-    for await (const entry of await args.client.messages.batches.results(batch.id)) {
-      if (entry.result.type === "succeeded") message = entry.result.message;
-      else throw new Error(`batch request ${entry.result.type}`);
-    }
-    if (!message) throw new Error("batch ended with no result");
-    let searchesUsed = 0;
-    let fetchesUsed = 0;
-    // The SDK's Message content union predates server tools — inspect raw.
-    for (const block of message.content as Array<{ type: string; name?: string }>) {
-      if (block.type === "server_tool_use" && block.name === "web_search") searchesUsed++;
-      else if (block.type === "server_tool_use" && block.name === "web_fetch") fetchesUsed++;
-    }
-    args.onProgress?.({ type: "done", searchesUsed, fetchesUsed });
-    for (const block of message.content) {
-      if (block.type === "tool_use" && block.name === args.toolName) {
-        return { output: block.input as T, searchesUsed, fetchesUsed };
+      args.onProgress?.({ type: "done", searchesUsed, fetchesUsed });
+      for (const block of message.content) {
+        if (block.type === "tool_use" && block.name === args.toolName) {
+          return { output: block.input as T, searchesUsed, fetchesUsed };
+        }
       }
+      throw new Error(
+        `model did not call tool ${args.toolName}; stop_reason=${message.stop_reason}`,
+      );
     }
-    throw new Error(
-      `model did not call tool ${args.toolName}; stop_reason=${message.stop_reason}`,
-    );
+    // Batch didn't finish inside the wait window — fall through to live.
   }
 
   const stream = args.client.messages.stream(requestParams, {
@@ -210,4 +195,47 @@ export async function callStructured<T>(args: {
   throw new Error(
     `model did not call tool ${args.toolName}; stop_reason=${response.stop_reason}`,
   );
+}
+
+
+/**
+ * Submit the request as a one-item batch and poll until it ends — or until
+ * `batchWaitMs` passes, in which case the batch is canceled and null is
+ * returned so the caller falls back to the live API. The discount is only
+ * worth taking when the queue is fast; the 24-hour tail is not a latency
+ * a user-facing runner can sit in.
+ */
+async function runBatchWithFallback<T>(
+  args: { client: Anthropic; signal?: AbortSignal; batchWaitMs?: number },
+  requestParams: Anthropic.MessageCreateParamsNonStreaming,
+  requestOptions: Record<string, unknown>,
+): Promise<Anthropic.Message | null> {
+  const waitMs = args.batchWaitMs ?? 10 * 60_000;
+  const deadline = Date.now() + waitMs;
+  const batch = await args.client.messages.batches.create(
+    { requests: [{ custom_id: "structured", params: requestParams }] },
+    requestOptions,
+  );
+  const POLL_MS = 15_000;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    if (args.signal?.aborted) {
+      await args.client.messages.batches.cancel(batch.id).catch(() => {});
+      throw new Error("aborted while waiting for batch result");
+    }
+    if (Date.now() > deadline) {
+      await args.client.messages.batches.cancel(batch.id).catch(() => {});
+      return null;
+    }
+    const state = await args.client.messages.batches.retrieve(batch.id);
+    if (state.processing_status === "ended") break;
+  }
+  let message: Anthropic.Message | null = null;
+  for await (const entry of await args.client.messages.batches.results(batch.id)) {
+    if (entry.result.type === "succeeded") message = entry.result.message;
+    else if (entry.result.type === "canceled") return null;
+    else throw new Error(`batch request ${entry.result.type}`);
+  }
+  if (!message) throw new Error("batch ended with no result");
+  return message;
 }
