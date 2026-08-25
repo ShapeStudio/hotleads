@@ -8,6 +8,8 @@ export { searchProspects } from "./search.js";
 export type { SearchProspectsOptions } from "./search.js";
 export { resolveLinkedinUrls } from "./linkedin-lookup.js";
 export { sweepCompanyContacts, SWEEP_MODEL } from "./contact-sweep.js";
+export { researchEmail } from "./email-lookup.js";
+export type { EmailIdentity, EmailLookupOptions } from "./email-lookup.js";
 export type { ContactSweepInput, ContactSweepOptions, ContactSweepResult } from "./contact-sweep.js";
 export type { LookupPerson } from "./linkedin-lookup.js";
 export { researchMany } from "./batch.js";
