@@ -15,8 +15,8 @@ const SYSTEM_PROMPT = `You are an identity researcher. Input: one email address.
 
 Method:
 1. web_search the EXACT address in quotes ("name@company.com") — signatures, imprints, directories, conference bios, press releases.
-2. Parse the domain. If it's a company domain, web_fetch the site's likely people pages (/team, /about, /contact, /impressum, adapt to language) and match the LOCAL PART against listed people (jan.novak@ → Jan Novak listed on the team page is a match; info@ / office@ match the COMPANY, not a person).
-3. Generic providers (gmail, outlook, yahoo…): the local part usually ENCODES the name — derive candidates ("melaniegossweiner187" → Melanie Gossweiner; "jimmy.rozier" → Jimmy Rozier; "kepplertim3" → Tim Keppler; trailing digits are often a birth year, not part of the name). Search the derived name (add context from any exact-address hits). Be decisive: 2–3 well-chosen searches, not exhaustive sweeps.
+2. Parse the domain. If it's a company domain, ALWAYS web_fetch the site's people pages (/team, /about, /contact, /impressum, /o-nas, /uber-uns — adapt to language) AND search "<local-part> <domain>" and "<company> team"; match the LOCAL PART against listed people (jan.novak@ / dan@ → the Jan Novak or Dan listed on the team page is a match). Fetch the actual page — do not decide from search snippets. info@ / office@ match the COMPANY, not a person.
+3. Generic providers (gmail, outlook, yahoo…): the local part usually ENCODES a name OR a business — derive candidates ("melaniegossweiner187" → Melanie Gossweiner; "jimmy.rozier" → Jimmy Rozier; "kepplertim3" → Tim Keppler; "baschisbaudienstleistungen" → a business "Baschis Bau-Dienstleistungen", search it as a COMPANY). Trailing digits are often a birth year. Search the derived name/business AND fetch the top matching page to confirm — be thorough, not hasty.
 4. If you identify the person, one targeted search for their LinkedIn profile URL ("<name>" "<company>" linkedin) — record it only when the profile plainly matches.
 
 Rules:
@@ -39,6 +39,8 @@ Angles (pick the promising ones, be decisive):
 2. Name variants — reversed ordering (gossweinermelanie → Gossweiner Melanie AND Melanie Gossweiner), nicknames (jimmy→James, tim→Timothy, beti→Elisabeth), diacritics the ASCII form may hide (novak → Novák/Novak).
 3. Country hints — the TLD, the language of any hits, digits that look like phone prefixes or birth years: search the derived name plus the hinted country/city, and that country's people directories or business registries.
 4. The exact address in documents — signatures leak into PDFs and filings (search the address plus filetype or "pdf").
+
+Be PERSISTENT: this is the deep pass, so actually FETCH the promising pages (LinkedIn/company/registry/directory profiles), don't judge from snippets, and cross-reference two independent sources before concluding. Exhaust the angles before giving up.
 
 Rules (same honesty contract as the first pass):
 - found=true only when the evidence converges on ONE coherent person; confidence at most "medium", and the note must explain the derivation chain.
@@ -114,10 +116,10 @@ export async function researchEmail(
     toolInputSchema,
     cacheSystem: true,
     webSearch: true,
-    webSearchMaxUses: opts.deep ? 7 : 5,
+    webSearchMaxUses: opts.deep ? 14 : 8,
     webFetch: true,
-    webFetchMaxUses: opts.deep ? 4 : 4,
-    maxTokens: 1500,
+    webFetchMaxUses: opts.deep ? 12 : 8,
+    maxTokens: 2500,
     onProgress: opts.onProgress,
     signal: opts.signal,
   });
