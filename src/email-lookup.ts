@@ -16,35 +16,42 @@ const SYSTEM_PROMPT = `You are an identity researcher. Input: one email address.
 Method:
 1. web_search the EXACT address in quotes ("name@company.com") — signatures, imprints, directories, conference bios, press releases.
 2. Parse the domain. If it's a company domain, web_fetch the site's likely people pages (/team, /about, /contact, /impressum, adapt to language) and match the LOCAL PART against listed people (jan.novak@ → Jan Novak listed on the team page is a match; info@ / office@ match the COMPANY, not a person).
-3. If you identify the person, one targeted search for their LinkedIn profile URL ("<name>" "<company>" linkedin) — record it only when the profile plainly matches.
+3. Generic providers (gmail, outlook, yahoo…): the local part usually ENCODES the name — derive candidates ("melaniegossweiner187" → Melanie Gossweiner; "jimmy.rozier" → Jimmy Rozier; "kepplertim3" → Tim Keppler; trailing digits are often a birth year, not part of the name). Search the derived name (add context from any exact-address hits). Be decisive: 2–3 well-chosen searches, not exhaustive sweeps.
+4. If you identify the person, one targeted search for their LinkedIn profile URL ("<name>" "<company>" linkedin) — record it only when the profile plainly matches.
 
 Rules:
-- found=true ONLY when a citable source ties the address (or its local part on that domain) to a named person. Record every claim's source URL in sources.
+- Company-domain addresses: found=true ONLY when a citable source ties the address (or its local part on that domain) to a named person.
+- Derived-name identifications (generic providers): found=true is allowed WITHOUT an exact-address hit when the derived name resolves to ONE clear public person — a distinctive name with a coherent public footprint. Cap confidence at "medium", and say in note that the name was derived from the address. If several distinct people plausibly match and nothing disambiguates, found=false with the ambiguity named in note.
 - A role address (info@, office@, sales@) identifies the COMPANY: set found=false for the person but fill company when the domain's site confirms it, and say so in note.
-- Generic providers (gmail, outlook, yahoo…): only exact-address hits count; no hits → found=false.
+- Record every claim's source URL in sources.
 - contacts: OTHER published details for the person/company you saw along the way (labeled, sourced) — never pattern-guessed.
-- confidence: "high" (page shows the address or local-part match on the exact domain), "medium" (strong indirect match), "low" (weak signals — prefer found=false over low-confidence guesses).`;
+- confidence: "high" (page shows the address or local-part match on the exact domain), "medium" (strong indirect or derived-name match), "low" (weak signals — prefer found=false over low-confidence guesses).`;
+
+// Free-text fields truncate instead of failing the whole parse — the same
+// clip() stance as schema.ts: a verbose model must never sink a result.
+const clip = (max: number) =>
+  z.string().transform((s) => (s.length > max ? `${s.slice(0, max - 1)}…` : s));
 
 const identitySchema = z.object({
   found: z.boolean(),
   person: z
     .object({
-      full_name: z.string().max(120),
-      title: z.string().max(160).optional(),
-      location: z.string().max(120).optional(),
+      full_name: clip(120),
+      title: clip(160).optional(),
+      location: clip(120).optional(),
     })
     .optional(),
   company: z
     .object({
-      name: z.string().max(160).optional(),
-      domain: z.string().max(160).optional(),
+      name: clip(160).optional(),
+      domain: clip(160).optional(),
     })
     .optional(),
-  linkedin_url: z.string().max(300).optional(),
+  linkedin_url: z.string().max(300).optional().catch(undefined),
   contacts: contactSchema.optional(),
-  confidence: z.enum(["high", "medium", "low"]).optional(),
-  sources: z.array(z.string().max(500)).optional().transform((a) => a?.slice(0, 8)),
-  note: z.string().max(400).optional(),
+  confidence: z.enum(["high", "medium", "low"]).optional().catch(undefined),
+  sources: z.array(clip(500)).optional().transform((a) => a?.slice(0, 8)),
+  note: clip(400).optional(),
 });
 
 export type EmailIdentity = z.infer<typeof identitySchema> & {
