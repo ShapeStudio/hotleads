@@ -32,6 +32,20 @@ Rules:
 const clip = (max: number) =>
   z.string().transform((s) => (s.length > max ? `${s.slice(0, max - 1)}…` : s));
 
+const DEEP_SYSTEM_PROMPT = `You are an identity researcher on a SECOND, deeper pass: a first pass found nothing for this email address. Attack from different angles — recorded via the record_email_identity tool. Only report what a page you actually read supports.
+
+Angles (pick the promising ones, be decisive):
+1. The LOCAL PART as a USERNAME — people reuse handles across platforms. Search it bare and with platform hints ("cimitahiri1991", "cimitahiri1991" instagram OR facebook OR github OR x OR tiktok).
+2. Name variants — reversed ordering (gossweinermelanie → Gossweiner Melanie AND Melanie Gossweiner), nicknames (jimmy→James, tim→Timothy, beti→Elisabeth), diacritics the ASCII form may hide (novak → Novák/Novak).
+3. Country hints — the TLD, the language of any hits, digits that look like phone prefixes or birth years: search the derived name plus the hinted country/city, and that country's people directories or business registries.
+4. The exact address in documents — signatures leak into PDFs and filings (search the address plus filetype or "pdf").
+
+Rules (same honesty contract as the first pass):
+- found=true only when the evidence converges on ONE coherent person; confidence at most "medium", and the note must explain the derivation chain.
+- Several plausible people and nothing to disambiguate → found=false, ambiguity named in note.
+- A username match on a platform is only an identification when the profile carries a real name.
+- Record every claim's source URL in sources. Never pattern-guess contact details.`;
+
 const identitySchema = z.object({
   found: z.boolean(),
   person: z
@@ -64,6 +78,8 @@ export interface EmailLookupOptions {
   model?: string;
   onProgress?: OnProgress;
   signal?: AbortSignal;
+  /** Second-pass mode: different angles, bigger search budget. */
+  deep?: boolean;
 }
 
 const toolInputSchema = zodToJsonSchema(identitySchema, {
@@ -90,7 +106,7 @@ export async function researchEmail(
   const { output } = await callStructured<unknown>({
     client: new Anthropic({ apiKey }),
     model: opts.model,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: opts.deep ? DEEP_SYSTEM_PROMPT : SYSTEM_PROMPT,
     userMessage: `# Email address\n${address}\n\nIdentify the owner and call record_email_identity.`,
     toolName: "record_email_identity",
     toolDescription:
@@ -98,9 +114,9 @@ export async function researchEmail(
     toolInputSchema,
     cacheSystem: true,
     webSearch: true,
-    webSearchMaxUses: 5,
+    webSearchMaxUses: opts.deep ? 7 : 5,
     webFetch: true,
-    webFetchMaxUses: 4,
+    webFetchMaxUses: opts.deep ? 4 : 4,
     maxTokens: 1500,
     onProgress: opts.onProgress,
     signal: opts.signal,
