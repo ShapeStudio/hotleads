@@ -13,6 +13,46 @@ export type ProgressEvent =
 export type OnProgress = (event: ProgressEvent) => void;
 
 /**
+ * Token accounting for one call. Callers forward this to their own telemetry
+ * so cost-per-dossier is a measured number rather than an estimate — nothing
+ * else in the pipeline records tokens (the usage meters count leads and
+ * dossiers, which is billing, not spend).
+ *
+ * `batched` matters for reading the numbers back: batched tokens bill at half
+ * price, so a batched call's input_tokens is NOT comparable to a live one's
+ * without halving the rate.
+ */
+export type CallUsage = {
+  /** Which model spent these tokens — rates differ ~3x between families. */
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  batched: boolean;
+};
+
+/**
+ * Fires once per model call. Separate from `onProgress` on purpose: progress
+ * is user-facing narration, usage is our books — it must never end up in the
+ * event rows the dashboard renders.
+ */
+export type OnUsage = (usage: CallUsage) => void;
+
+/** Normalize the SDK's nullable usage fields into plain numbers. */
+function readUsage(message: Anthropic.Message, batched: boolean): CallUsage {
+  const u = message.usage;
+  return {
+    model: message.model,
+    input_tokens: u?.input_tokens ?? 0,
+    output_tokens: u?.output_tokens ?? 0,
+    cache_creation_input_tokens: u?.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: u?.cache_read_input_tokens ?? 0,
+    batched,
+  };
+}
+
+/**
  * Run a tool-use call where the model is expected to ultimately call a
  * specific structured-output tool. Returns that tool call's input.
  *
@@ -45,6 +85,14 @@ export async function callStructured<T>(args: {
   webSearchMaxUses?: number;
   webFetch?: boolean;
   webFetchMaxUses?: number;
+  /**
+   * Cap on tokens kept from ONE fetched page. Costly: fetched content stays
+   * in context for every subsequent turn of the server-tool loop, so a
+   * generous cap is paid repeatedly, not once. Defaults to the historical
+   * 15000 — tune per call site (a contact or imprint page carries a fraction
+   * of that in useful content).
+   */
+  maxContentTokens?: number;
   maxTokens?: number;
   onProgress?: OnProgress;
   signal?: AbortSignal;
@@ -57,7 +105,7 @@ export async function callStructured<T>(args: {
    */
   batch?: boolean;
   batchWaitMs?: number;
-}): Promise<{ output: T; searchesUsed: number; fetchesUsed: number }> {
+}): Promise<{ output: T; searchesUsed: number; fetchesUsed: number; usage: CallUsage }> {
   const model = args.model ?? DEFAULT_MODEL;
 
   const tool = {
@@ -80,7 +128,7 @@ export async function callStructured<T>(args: {
       name: "web_fetch",
       max_uses: args.webFetchMaxUses ?? 4,
       // Bound the token cost of a single fetched page.
-      max_content_tokens: 15000,
+      max_content_tokens: args.maxContentTokens ?? 15000,
     } as unknown as Anthropic.ToolUnion);
   }
 
@@ -120,7 +168,12 @@ export async function callStructured<T>(args: {
       args.onProgress?.({ type: "done", searchesUsed, fetchesUsed });
       for (const block of message.content) {
         if (block.type === "tool_use" && block.name === args.toolName) {
-          return { output: block.input as T, searchesUsed, fetchesUsed };
+          return {
+            output: block.input as T,
+            searchesUsed,
+            fetchesUsed,
+            usage: readUsage(message, true),
+          };
         }
       }
       throw new Error(
@@ -189,7 +242,12 @@ export async function callStructured<T>(args: {
 
   for (const block of response.content) {
     if (block.type === "tool_use" && block.name === args.toolName) {
-      return { output: block.input as T, searchesUsed, fetchesUsed };
+      return {
+        output: block.input as T,
+        searchesUsed,
+        fetchesUsed,
+        usage: readUsage(response, false),
+      };
     }
   }
   throw new Error(

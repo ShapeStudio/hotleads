@@ -12,7 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, type OnProgress } from "./anthropic.js";
+import { callStructured, type OnProgress, type OnUsage } from "./anthropic.js";
 import { contactSchema, type Contact } from "./schema.js";
 
 /** Small model on purpose — contact-page extraction needs no judgment. */
@@ -50,6 +50,8 @@ export interface ContactSweepOptions {
   /** Override the sweep model (default claude-haiku-4-5). */
   model?: string;
   onProgress?: OnProgress;
+  /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
+  onUsage?: OnUsage;
   signal?: AbortSignal;
 }
 
@@ -94,7 +96,7 @@ export async function sweepCompanyContacts(
     .filter(Boolean)
     .join("\n");
 
-  const { output, searchesUsed, fetchesUsed } = await callStructured<{ contact?: unknown }>({
+  const { output, searchesUsed, fetchesUsed, usage } = await callStructured<{ contact?: unknown }>({
     client: new Anthropic({ apiKey }),
     model: opts.model ?? SWEEP_MODEL,
     systemPrompt: SYSTEM_PROMPT,
@@ -112,6 +114,8 @@ export async function sweepCompanyContacts(
     onProgress: opts.onProgress,
     signal: opts.signal,
   });
+
+  opts.onUsage?.(usage);
 
   const contact = contactSchema.parse(
     (output as { contact?: unknown }).contact ?? {},

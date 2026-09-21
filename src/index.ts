@@ -37,5 +37,9 @@ export type {
   IcpProfile,
   ProspectLead,
 } from "./schema.js";
-export type { ProgressEvent, OnProgress } from "./anthropic.js";
+export type { ProgressEvent, OnProgress, CallUsage, OnUsage } from "./anthropic.js";
 export { DEFAULT_MODEL } from "./anthropic.js";
+export { scoreLeads, rankKey, SCORER_VERSION } from "./lead-score.js";
+export type { LeadScore, LeadScoreOptions } from "./lead-score.js";
+export { noul, score, choice, typesafeConfigured, DEFAULT_JEV_MODEL } from "./typesafe.js";
+export type { SystemOneCaller, TypeSafeOptions } from "./typesafe.js";

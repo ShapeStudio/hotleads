@@ -14,7 +14,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
-import { callStructured, type OnProgress } from "./anthropic.js";
+import { callStructured, type OnProgress, type OnUsage } from "./anthropic.js";
 
 /** People per lookup pass — bounds cost and keeps the prompt small. */
 export const LOOKUP_MAX_PEOPLE = 10;
@@ -81,6 +81,7 @@ export async function resolveLinkedinUrls(
     client: Anthropic;
     model?: string;
     onProgress?: OnProgress;
+    onUsage?: OnUsage;
     signal?: AbortSignal;
   },
 ): Promise<{ urls: (string | undefined)[]; searchesUsed: number }> {
@@ -98,7 +99,7 @@ export async function resolveLinkedinUrls(
   ].join("\n");
 
   try {
-    const { output, searchesUsed } = await callStructured<unknown>({
+    const { output, searchesUsed, usage } = await callStructured<unknown>({
       client: opts.client,
       // Profile-URL lookup is pure extraction — the small model does it
       // at a third of the token price.
@@ -121,6 +122,8 @@ export async function resolveLinkedinUrls(
         : undefined,
       signal: opts.signal,
     });
+
+    opts.onUsage?.(usage);
 
     const parsed = lookupToolSchema.safeParse(output);
     const urls: (string | undefined)[] = new Array(batch.length).fill(undefined);
