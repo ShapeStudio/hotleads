@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, DEFAULT_MODEL, type OnProgress } from "./anthropic.js";
+import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
 import { fetchProxycurlProfile } from "./proxycurl.js";
 import {
   normalizeMetaField,
@@ -24,15 +24,17 @@ export interface ResearchOptions {
   proxycurlApiKey?: string;
   /** Defaults to "claude-sonnet-4-6". */
   model?: string;
-  /** standard = 15 web searches, deep = 19. */
+  /** standard = 13 web searches, deep = 17. */
   depth?: ResearchDepth;
   /** Override the search budget directly (wins over depth). */
   webSearchMaxUses?: number;
   onProgress?: OnProgress;
+  /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
+  onUsage?: OnUsage;
   signal?: AbortSignal;
 }
 
-const SEARCH_BUDGET: Record<ResearchDepth, number> = { standard: 15, deep: 19 };
+const SEARCH_BUDGET: Record<ResearchDepth, number> = { standard: 13, deep: 17 };
 
 /** Direct page fetches (web_fetch) — separate from the search budget. */
 const FETCH_BUDGET = 5;
@@ -61,15 +63,13 @@ Use them aggressively. Plan your searches (budget shown in the user message):
 3. \`"<company>" about\` AND — when company_url is given — web_fetch that URL directly (mandatory; the site may not be indexed at all): official site, products, positioning, industry, HQ, founding year, employee count.
 4. \`"<name>" twitter OR github OR substack\` — public social links + what they think about lately.
 5. \`"<company>" competitors\` OR \`"<company>" vs\` — 2-5 DIRECT competitors (same market, same buyer, wherever based). For each: where they stand, and how the researched company positions (or could position) against them.
-6. \`"<company>" competitors <HQ country>\` OR local industry roundups/rankings in the company's home market — 2-5 competitors HEADQUARTERED in the same country/home market. Fill domestic_competitors. These are the local incumbents the prospect fights daily and are often a DIFFERENT set from the global list; don't just copy search 5's results. Search in the local language when that surfaces better results.
-7. \`similarweb "<domain>"\` OR \`"<company>" monthly visitors\` — traffic estimate. Also skim their product pages for price points → aov estimate + pricing model.
-8. \`"<company>" funding OR crunchbase OR "raised"\` — funding block: total raised, last round, date, notable investors.
-9. \`"<company>" news\` (current year) — 2-5 recent news items, each with a one-line why_it_matters for a seller.
-10. \`"<company>" careers OR hiring\` — hiring signals: actively hiring? which roles?
-11. \`"<domain>" builtwith OR "powered by"\` — tech stack, when discoverable.
-12. CONTACT ROUTES — web_fetch the company's contact / "kontakt" / about / imprint / impressum page (these carry published phone numbers, emails and addresses, and are frequently not in search snippets). Fill the contact block.
-13. \`"<name>" email OR contact OR "@<domain>"\` — a published direct address or direct line for THIS person: register entries, talk/speaker bios, press releases, association directories, their own site.
-14-15. Open follow-ups on the strongest signals the prior searches surfaced (a named project, a conference talk, an acquisition rumor).
+6. \`similarweb "<domain>"\` OR \`"<company>" monthly visitors\` — traffic estimate. Also skim their product pages for price points → aov estimate + pricing model.
+7. \`"<company>" funding OR crunchbase OR "raised"\` — funding block: total raised, last round, date, notable investors.
+8. \`"<company>" news\` (current year) — 2-5 recent news items, each with a one-line why_it_matters for a seller.
+9. \`"<company>" careers OR hiring\` — hiring signals: actively hiring? which roles?
+10. CONTACT ROUTES — web_fetch the company's contact / "kontakt" / about / imprint / impressum page (these carry published phone numbers, emails and addresses, and are frequently not in search snippets). Fill the contact block.
+11. \`"<name>" email OR contact OR "@<domain>"\` — a published direct address or direct line for THIS person: register entries, talk/speaker bios, press releases, association directories, their own site.
+12-13. Open follow-ups on the strongest signals the prior searches surfaced (a named project, a conference talk, an acquisition rumor).
 
 With a deep budget, spend the extra searches on: a second news pass, executive-team context, verifying the competitor list from a second angle, and a second contact-route attempt.
 
@@ -81,7 +81,6 @@ With a deep budget, spend the extra searches on: a second news pass, executive-t
 - company.logo_url: https://logo.clearbit.com/{domain} is acceptable once you know the domain.
 - commercials: estimate strings ALWAYS carry their basis ("~80,000 monthly visits (SimilarWeb estimate)"). Numeric twins (monthly_traffic, aov) are plain numbers — fill both forms or neither. Never invent precision; empty + a research_notes line beats a made-up number.
 - competitors[].note: grounded in something you read. competitors[].vs_positioning: how the researched company wins or differs — category-level reasoning is fine, invented facts are not. Fill hq_location when known.
-- domestic_competitors: HEADQUARTERED in the company's home country/market only. A company may appear in both lists if it's both a direct global rival AND locally headquartered — that's fine. When the home market genuinely has no distinct local competitors, leave the list empty and say so in research_notes.
 - contact: PUBLISHED business contact details only, each with the source_url you read it from. Record what the page actually shows — a company switchboard or info@ address is a useful, honest answer; label it as such ("company switchboard", "general info@ inbox", "direct line"). NEVER construct an address from a name pattern (first.last@company.com, initials@…) or from another employee's address: guessed addresses are usually wrong, they bounce, and they damage the sender's domain reputation. Prefer a person's direct details when published; otherwise give the company route and say so in contact.note. If nothing is published anywhere, leave the block empty and say that in the note — that is a legitimate result.
 - outreach: written FOR a seller approaching this person. likely_pain_points and hooks tie to the role + company stage. icebreakers are ready-to-send opening lines referencing something real from the research. talking_points cite researched specifics.
 - meta.confidence: high / medium / low by how much you actually verified.
@@ -183,7 +182,7 @@ export async function research(
     .filter(Boolean)
     .join("\n");
 
-  const { output, searchesUsed, fetchesUsed } = await callStructured<unknown>({
+  const { output, searchesUsed, fetchesUsed, usage } = await callStructured<unknown>({
     client,
     model,
     systemPrompt: SYSTEM_PROMPT,
@@ -202,6 +201,10 @@ export async function research(
     signal: opts.signal,
     batch: opts.batchMode,
   });
+
+  // Report spend before parsing: the tokens are already bought whether or
+  // not the output validates.
+  opts.onUsage?.(usage);
 
   // Models emit explicit nulls for unfillable optional fields — strip them
   // before validation (see stripNulls docs) — and occasionally emit meta as

@@ -8,7 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, type OnProgress } from "./anthropic.js";
+import { callStructured, type OnProgress, type OnUsage } from "./anthropic.js";
 import { contactSchema, type Contact } from "./schema.js";
 
 const SYSTEM_PROMPT = `You are an identity researcher. Input: one email address. Output: who it belongs to — recorded via the record_email_identity tool. Only report what a page you actually read supports.
@@ -79,6 +79,8 @@ export interface EmailLookupOptions {
   anthropicApiKey?: string;
   model?: string;
   onProgress?: OnProgress;
+  /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
+  onUsage?: OnUsage;
   signal?: AbortSignal;
   /** Second-pass mode: different angles, bigger search budget. */
   deep?: boolean;
@@ -105,7 +107,7 @@ export async function researchEmail(
     );
   }
 
-  const { output } = await callStructured<unknown>({
+  const { output, usage } = await callStructured<unknown>({
     client: new Anthropic({ apiKey }),
     model: opts.model,
     systemPrompt: opts.deep ? DEEP_SYSTEM_PROMPT : SYSTEM_PROMPT,
@@ -123,6 +125,8 @@ export async function researchEmail(
     onProgress: opts.onProgress,
     signal: opts.signal,
   });
+
+  opts.onUsage?.(usage);
 
   return { ...identitySchema.parse(output), email: address };
 }

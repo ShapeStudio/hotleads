@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, DEFAULT_MODEL, type OnProgress } from "./anthropic.js";
+import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
 import { resolveLinkedinUrls, LOOKUP_MAX_PEOPLE } from "./linkedin-lookup.js";
 import type { ResearchDepth } from "./research.js";
 import {
@@ -31,6 +31,8 @@ export interface SearchProspectsOptions {
    */
   resolveLinkedinUrls?: boolean;
   onProgress?: OnProgress;
+  /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
+  onUsage?: OnUsage;
   signal?: AbortSignal;
 }
 
@@ -143,7 +145,7 @@ export async function searchProspects(
     .filter(Boolean)
     .join("\n");
 
-  const { output, searchesUsed, fetchesUsed } = await callStructured<unknown>({
+  const { output, searchesUsed, fetchesUsed, usage } = await callStructured<unknown>({
     client,
     model,
     systemPrompt: SYSTEM_PROMPT,
@@ -161,6 +163,10 @@ export async function searchProspects(
     onProgress: opts.onProgress,
     signal: opts.signal,
   });
+
+  // Report spend before parsing: the tokens are already bought whether or
+  // not the output validates.
+  opts.onUsage?.(usage);
 
   // Models emit explicit nulls for unfillable optional fields — strip them
   // before validation (see stripNulls docs) — and occasionally emit meta as
@@ -188,6 +194,9 @@ export async function searchProspects(
           client,
           model,
           onProgress: opts.onProgress,
+          // Fires again — a round that backfills LinkedIn URLs is two model
+          // calls, and the caller should see both.
+          onUsage: opts.onUsage,
           signal: opts.signal,
         },
       );
