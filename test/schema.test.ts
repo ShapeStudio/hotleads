@@ -12,6 +12,7 @@ import {
   searchInputSchema,
   stripNulls,
   truncate,
+  assessReachability,
 } from "../src/schema.js";
 import { parseProspectsCsv, parseCsv } from "../src/cli/csv.js";
 import { nameFromLinkedinUrl } from "../src/research.js";
@@ -333,4 +334,48 @@ test("prospects csv requires linkedin_url header and maps optional columns", () 
   assert.equal(rows[0]?.company_url, "https://a.com");
   assert.equal(rows[1]?.name, undefined);
   assert.throws(() => parseProspectsCsv("name\nAnn\n"), /linkedin_url/);
+});
+
+test("assessReachability: gated profile + only company inboxes = unreachable", () => {
+  const r = assessReachability({
+    person: { full_name: "Rafael Hymann", linkedin_url: "https://linkedin.com/in/rafael" },
+    contact: {
+      emails: [{ value: "team@horizn.com", label: "general team@ inbox", reach: "company" }],
+      phones: [],
+    },
+    meta: { profile_accessible: false },
+  });
+  assert.equal(r.reachable, false);
+  assert.match(r.reason ?? "", /member-gated/);
+  assert.match(r.reason ?? "", /shared company routes/);
+});
+
+test("assessReachability: accessible profile is a channel", () => {
+  const r = assessReachability({
+    person: { full_name: "Ann Lee", linkedin_url: "https://linkedin.com/in/annlee" },
+    meta: {},
+  });
+  assert.equal(r.reachable, true);
+  assert.deepEqual(r.channels, ["linkedin"]);
+});
+
+test("assessReachability: direct email counts, with or without the reach field", () => {
+  const tagged = assessReachability({
+    person: { full_name: "Ann Lee" },
+    contact: { emails: [{ value: "a.lee@acme.com", reach: "direct" }] },
+  });
+  assert.deepEqual(tagged.channels, ["direct_email"]);
+  // Pre-`reach` dossiers: fall back to the label naming the person.
+  const legacy = assessReachability({
+    person: { full_name: "Ann Lee" },
+    contact: { emails: [{ value: "a.lee@acme.com", label: "direct — Ann Lee" }] },
+  });
+  assert.deepEqual(legacy.channels, ["direct_email"]);
+});
+
+test("assessReachability: nothing published at all names the gap", () => {
+  const r = assessReachability({ person: { full_name: "Ann Lee" } });
+  assert.equal(r.reachable, false);
+  assert.match(r.reason ?? "", /no LinkedIn profile/);
+  assert.match(r.reason ?? "", /no contact details published/);
 });

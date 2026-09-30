@@ -53,7 +53,7 @@ Search options:
   --depth <d>            standard (14 searches, default) | deep (18 searches)
 
 Shared options:
-  --model <id>           Anthropic model id (default claude-sonnet-4-6)
+  --model <id>           Anthropic model id (default claude-sonnet-5)
   --out <file|dir>       write JSON to a file (or a directory in batch/--research)
   --concurrency <n>      parallel dossiers in batch / --research mode (default 3)
   --json                 compact JSON output (default when piped)

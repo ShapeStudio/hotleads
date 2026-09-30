@@ -12,12 +12,15 @@ import {
   SCHEMA_VERSION,
   type ProspectSearch,
   type SearchInput,
+  type SellerProfile,
 } from "./schema.js";
 
 export interface SearchProspectsOptions {
+  /** Half-price Message Batches routing — minutes of latency, same output. */
+  batchMode?: boolean;
   /** Defaults to process.env.ANTHROPIC_API_KEY. */
   anthropicApiKey?: string;
-  /** Defaults to "claude-sonnet-4-6". */
+  /** Defaults to "claude-sonnet-5". */
   model?: string;
   /** standard = 14 web searches, deep = 18. */
   depth?: ResearchDepth;
@@ -50,6 +53,7 @@ The output is consumed programmatically (CRMs, outreach tooling, scripts) — co
 # Inputs you may receive
 - company_url (always) — the SELLER's own website. Everything starts here: read it to learn what they sell.
 - target (optional) — the seller's own description of their ideal customer. When present, ADOPT it as the ICP (ground it lightly against the site, don't second-guess it) and spend the saved searches finding more people.
+- seller profile (optional) — the seller's OWN confirmed description of their business: what they sell, buyer titles, industries, company size, geographies, buying triggers, and guidance. The seller has reviewed and corrected this, so it outranks anything you would infer: adopt every field as given, copy it into the icp block, infer ONLY fields it leaves empty, and follow its guidance line strictly (exclusions included).
 - notes (optional seller context — factor into relevance judgments)
 - Companies must be ACTIVE: when a register or news result shows a company as dissolved, de-registered, in liquidation, or otherwise defunct, skip its people entirely — a lead at a dead company is worthless to the seller.
 - location (optional city-level filter) — when present, return ONLY decision-makers whose company you can place in or around that location with a cited source (HQ address, imprint, business register, office page). A candidate whose company location you cannot verify is not a match — skip them. Set each prospect's location field.
@@ -63,7 +67,7 @@ Use them aggressively. Plan your work (budgets shown in the user message):
 
 1. MANDATORY FIRST STEP: web_fetch the company_url directly. The fetched page is the ground truth for what they sell — never skip this, and never substitute a search for it. If the homepage is thin, fetch 1-2 key subpages (pricing, product, about). Complement with \`site:<domain>\` search. This is the ICP foundation.
 2. \`"<company>" customers OR "case study" OR testimonials\` — who already buys. Existing customers are the strongest ICP evidence; note their industries, sizes, and the buyer titles involved.
-3. \`"<company>" alternatives OR competitors\` — confirm the market category and skim who the competitors sell to. Now COMMIT to an ICP: target industries, company size, geographies, and 3-6 buyer titles. Record it in the icp block. (If target was provided: do only search 1 for grounding, adopt the given ICP, and spend searches 2-3 on people instead.)
+3. \`"<company>" alternatives OR competitors\` — confirm the market category and skim who the competitors sell to. Now COMMIT to an ICP: target industries, company size, geographies, and 3-6 buyer titles. Record it in the icp block. (If a seller profile or target was provided: do only search 1 for grounding, adopt the given ICP, and spend searches 2-3 on people instead.)
 4. \`top <category> companies <geography>\` OR industry directories, rankings, award lists — 5-10 candidate companies that fit the ICP.
 5-6. \`site:linkedin.com/in "<buyer title>" "<candidate company>"\` — direct people search. Search-engine snippets surface names, titles, and profile URLs. Repeat across candidate companies and buyer-title variants.
 7. \`"<candidate company>" team OR leadership OR about\` — official team pages naming the decision-maker. Often better than LinkedIn snippets, and citable. web_fetch a team page directly when the snippet alone doesn't confirm name + role.
@@ -83,6 +87,7 @@ With a deep budget, spend the extra searches on: a second geography or vertical 
 - prospects[].why_relevant must reference the ICP ("VP Ops at a 200-person DACH logistics firm — matches the mid-market ops ICP"), not generic flattery.
 - prospects[].confidence: high = role verified on 2+ pages or a current official page; medium = single credible source; low = single dated or indirect source. Do not list anyone you would rate below low.
 - Spread prospects across DISTINCT companies — ten people at one company is a worse list than ten companies with one person each.
+- The seller needs a DIRECT channel to each person (LinkedIn message, direct email, direct line). All else equal, prefer decision-makers with an observable public presence — a profile URL that appeared in results, or published direct contact details — over people visible only on a stale third-party page.
 - Do not list people at the seller's own company or at its direct competitors.
 - meta.sources: every page that informed the list (up to 15). Real URLs you retrieved via web_search only.
 - meta.research_notes: 1-3 sentences on ICP confidence and what was hard to find. If you return fewer prospects than asked, say why here.
@@ -106,6 +111,27 @@ const toolInputSchema = zodToJsonSchema(prospectSearchToolSchema, {
  * structured result; throws on invalid input, missing API key, or
  * model/API failure.
  */
+/**
+ * Render a seller profile as the prompt block the search adopts as its ICP.
+ * Returns "" when nothing in it is filled, so an empty profile never produces
+ * a heading with nothing under it (and never flips icp_source to "provided").
+ */
+export function formatSellerProfile(profile: SellerProfile): string {
+  const list = (items?: string[]) =>
+    items?.map((i) => i.trim()).filter(Boolean).join("; ") || "";
+  const lines = [
+    profile.what_they_sell?.trim() && `What they sell: ${profile.what_they_sell.trim()}`,
+    profile.category?.trim() && `Category: ${profile.category.trim()}`,
+    list(profile.buyer_titles) && `Buyer titles (who to find): ${list(profile.buyer_titles)}`,
+    list(profile.target_industries) && `Target industries: ${list(profile.target_industries)}`,
+    profile.target_company_size?.trim() && `Target company size: ${profile.target_company_size.trim()}`,
+    list(profile.target_geographies) && `Target geographies: ${list(profile.target_geographies)}`,
+    list(profile.buying_triggers) && `Buying triggers (timely signals): ${list(profile.buying_triggers)}`,
+    profile.notes?.trim() && `Seller's guidance: ${profile.notes.trim()}`,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
 export async function searchProspects(
   input: SearchInput,
   opts: SearchProspectsOptions = {},
@@ -120,8 +146,12 @@ export async function searchProspects(
   }
   const model = opts.model ?? DEFAULT_MODEL;
   const depth: ResearchDepth = opts.depth ?? "standard";
-  const searchBudget = opts.webSearchMaxUses ?? SEARCH_BUDGET[depth];
   const count = parsedInput.count ?? DEFAULT_COUNT;
+  // A round asked for 3 leads doesn't need the full 14-search budget. The
+  // floor (7 + count) always leaves room for the ICP work (searches 1-3)
+  // and the verification passes — those are quality, never cut them.
+  const searchBudget =
+    opts.webSearchMaxUses ?? Math.min(SEARCH_BUDGET[depth], 7 + count);
   const minCompanies = Math.min(Math.ceil(count / 2), 5);
 
   const client = new Anthropic({ apiKey });
@@ -129,6 +159,9 @@ export async function searchProspects(
   const userMessage = [
     `# Seller`,
     `Company website (canonical — the ICP starts here): ${parsedInput.company_url}`,
+    parsedInput.profile && formatSellerProfile(parsedInput.profile)
+      ? `\n# Seller profile (confirmed by the seller — adopt as the ICP; do NOT re-infer these from the website, only fill what's missing)\n${formatSellerProfile(parsedInput.profile)}`
+      : null,
     parsedInput.target
       ? `\n# Target customer (provided by the seller — adopt as the ICP)\n${parsedInput.target}`
       : null,
@@ -162,6 +195,10 @@ export async function searchProspects(
     maxTokens: 8192,
     onProgress: opts.onProgress,
     signal: opts.signal,
+    batch: opts.batchMode,
+    // Nobody is watching a batch round — wait out a slow queue instead of
+    // canceling at 10 min and re-paying full price on the live API.
+    batchWaitMs: opts.batchMode ? 35 * 60_000 : undefined,
   });
 
   // Report spend before parsing: the tokens are already bought whether or
@@ -192,7 +229,10 @@ export async function searchProspects(
         })),
         {
           client,
-          model,
+          // Deliberately NOT the search model: URL backfill is pure snippet
+          // extraction, and linkedin-lookup's own Haiku default does it at a
+          // third of the token price. Passing `model` here silently routed
+          // this pass through Sonnet for months.
           onProgress: opts.onProgress,
           // Fires again — a round that backfills LinkedIn URLs is two model
           // calls, and the caller should see both.
@@ -213,7 +253,10 @@ export async function searchProspects(
     ...parsed,
     icp: {
       ...parsed.icp,
-      icp_source: parsedInput.target ? "provided" : "inferred",
+      icp_source:
+        parsedInput.target || (parsedInput.profile && formatSellerProfile(parsedInput.profile))
+          ? "provided"
+          : "inferred",
     },
     meta: {
       ...(parsed.meta ?? {}),

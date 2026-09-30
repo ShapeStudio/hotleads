@@ -124,6 +124,16 @@ export const personSchema = z.object({
       years_in_role: clipOpt(40).optional(),
     })
     .optional(),
+  /**
+   * Whether the person verifiably still holds the role they were researched
+   * for. "departed" = a newer source shows they've left that company (the
+   * stale role belongs in past_experience, and current_role holds their NEW
+   * role only when verified). "unverified" = no source could confirm either
+   * way. Absent on dossiers predating this field.
+   */
+  employment_status: z.enum(["current", "departed", "unverified"]).optional(),
+  /** Evidence, one line: "left Horizn Studios in 2024; now COO at Acme (per …)". */
+  employment_note: clipOpt(300).optional(),
   total_years_experience: clipOpt(40).optional(),
   education: z.array(educationItemSchema).optional().transform((a) => a?.slice(0, 6)),
   past_experience: z.array(experienceItemSchema).optional().transform((a) => a?.slice(0, 6)),
@@ -223,6 +233,12 @@ export const contactItemSchema = z.object({
   label: clipOpt(80).optional(),
   /** Page it was published on. */
   source_url: url.optional(),
+  /**
+   * "direct" = the page ties this detail to the named person; "company" = a
+   * shared route (switchboard, info@, contact form inbox). Structured twin of
+   * the label so callers can compute reachability without parsing prose.
+   */
+  reach: z.enum(["direct", "company"]).optional(),
 });
 
 export const contactSchema = z.object({
@@ -237,6 +253,80 @@ export const contactSchema = z.object({
   /** Honest note: what's reachable, what isn't, and the best route in. */
   note: clipOpt(400).optional(),
 });
+
+// ---- reachability ----------------------------------------------------------
+// A lead is only worth outreach when there is a DIRECT channel to the person:
+// a messageable LinkedIn profile, a direct email, or a direct phone number.
+// A dossier whose only routes are info@ inboxes and switchboards is honest,
+// but the caller should know it and go find someone reachable instead.
+
+export type ReachChannel = "linkedin" | "direct_email" | "direct_phone";
+
+export interface Reachability {
+  reachable: boolean;
+  channels: ReachChannel[];
+  /** Human one-liner when unreachable — why every route is a dead end. */
+  reason?: string;
+}
+
+/** Older dossiers have no `reach` field — fall back to reading the label. */
+const DIRECT_LABEL_RE = /\bdirect\b|\bmobile\b|\bcell\b|\bpersonal\b/i;
+
+function isDirect(
+  item: { label?: string; reach?: "direct" | "company" },
+  nameTokens: string[],
+): boolean {
+  if (item.reach) return item.reach === "direct";
+  const label = item.label?.toLowerCase() ?? "";
+  if (DIRECT_LABEL_RE.test(label)) return true;
+  return nameTokens.some((t) => t.length > 2 && label.includes(t));
+}
+
+/**
+ * Judge whether a dossier offers a direct channel to the person. LinkedIn
+ * counts only when a profile URL exists AND research didn't flag the person
+ * as unverifiable (meta.profile_accessible === false); emails/phones count
+ * only when tied to the person, not a shared company inbox.
+ */
+export function assessReachability(dossier: {
+  person: { full_name: string; linkedin_url?: string };
+  contact?: Contact;
+  meta?: { profile_accessible?: boolean };
+}): Reachability {
+  const nameTokens = dossier.person.full_name.toLowerCase().split(/\s+/);
+  const channels: ReachChannel[] = [];
+
+  if (dossier.person.linkedin_url && dossier.meta?.profile_accessible !== false) {
+    channels.push("linkedin");
+  }
+  if (dossier.contact?.emails?.some((e) => isDirect(e, nameTokens))) {
+    channels.push("direct_email");
+  }
+  if (dossier.contact?.phones?.some((p) => isDirect(p, nameTokens))) {
+    channels.push("direct_phone");
+  }
+
+  if (channels.length > 0) return { reachable: true, channels };
+
+  const hasCompanyRoutes =
+    (dossier.contact?.emails?.length ?? 0) > 0 ||
+    (dossier.contact?.phones?.length ?? 0) > 0 ||
+    (dossier.contact?.contact_pages?.length ?? 0) > 0;
+  const profileGated =
+    Boolean(dossier.person.linkedin_url) && dossier.meta?.profile_accessible === false;
+  return {
+    reachable: false,
+    channels,
+    reason: [
+      profileGated
+        ? "LinkedIn profile is member-gated and couldn't be verified"
+        : "no LinkedIn profile found",
+      hasCompanyRoutes
+        ? "only shared company routes published (info@ inbox / switchboard / contact form)"
+        : "no contact details published anywhere",
+    ].join("; "),
+  };
+}
 
 // ---- outreach -------------------------------------------------------------
 
@@ -455,6 +545,28 @@ export type ProspectLead = z.infer<typeof prospectLeadSchema>;
 
 // ---- search input -----------------------------------------------------------
 
+/**
+ * The seller's own description of their business — what they sell and who
+ * buys it — as confirmed (and possibly corrected) by the seller themselves.
+ *
+ * An INPUT, never a tool schema: it's what the app hands the search, not
+ * something a model emits. Every field optional because a profile is filled
+ * in progressively; the search adopts whatever is present and infers the rest.
+ */
+export const sellerProfileSchema = z.object({
+  what_they_sell: z.string().max(700).optional(),
+  category: z.string().max(160).optional(),
+  target_industries: z.array(z.string().max(120)).max(8).optional(),
+  target_company_size: z.string().max(200).optional(),
+  target_geographies: z.array(z.string().max(120)).max(8).optional(),
+  buyer_titles: z.array(z.string().max(120)).max(10).optional(),
+  buying_triggers: z.array(z.string().max(240)).max(8).optional(),
+  /** Free-form steering: exclusions, preferences, anything else. */
+  notes: z.string().max(1000).optional(),
+});
+
+export type SellerProfile = z.infer<typeof sellerProfileSchema>;
+
 export const searchInputSchema = z.object({
   /** YOUR company's website — the ICP is inferred from it. */
   company_url: z.string().url(),
@@ -462,6 +574,12 @@ export const searchInputSchema = z.object({
   target: z.string().max(600).optional(),
   /** Extra context on what you sell — feeds the search. */
   notes: z.string().max(600).optional(),
+  /**
+   * The seller's confirmed profile. When present it IS the ICP: the search
+   * adopts it rather than re-inferring from the website, so a correction the
+   * seller made sticks for every round instead of being re-guessed each time.
+   */
+  profile: sellerProfileSchema.optional(),
   /**
    * City-level geographic filter — only decision-makers whose company can be
    * placed in or around this location with a cited source.
