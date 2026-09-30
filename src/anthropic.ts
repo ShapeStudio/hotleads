@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-export const DEFAULT_MODEL = "claude-sonnet-4-6";
+// Sonnet 5: cheaper than Sonnet 4.6 ($2/$10 vs $3/$15 per MTok — the launch
+// price was made permanent) AND a strict upgrade on agentic web research
+// (Anthropic's BrowseComp curves dominate 4.6). One caveat baked into cost
+// math elsewhere: the 4.7+ tokenizer emits ~30% more tokens for the same
+// text, so the net saving is smaller than the sticker gap, never negative.
+export const DEFAULT_MODEL = "claude-sonnet-5";
 
 export type ProgressEvent =
   | { type: "start"; model: string }
@@ -114,17 +119,23 @@ export async function callStructured<T>(args: {
     input_schema: args.toolInputSchema as Anthropic.Tool.InputSchema,
   } as Anthropic.Tool;
 
+  // The _20260209 web-tool variants filter search results server-side
+  // (the filtering pass is free) before they hit the context, so every
+  // subsequent turn re-reads fewer input tokens — same information, less
+  // money. They exist only on Sonnet 4.6+/5 and Opus 4.6+; Haiku rejects
+  // them, so it keeps the basic variants.
+  const modernWebTools = /claude-(sonnet-(5|4-6)|opus-(5|4-[678]))/.test(model);
   const tools: Anthropic.ToolUnion[] = [tool];
   if (args.webSearch) {
     tools.push({
-      type: "web_search_20250305",
+      type: modernWebTools ? "web_search_20260209" : "web_search_20250305",
       name: "web_search",
       max_uses: args.webSearchMaxUses ?? 3,
     } as unknown as Anthropic.ToolUnion);
   }
   if (args.webFetch) {
     tools.push({
-      type: "web_fetch_20250910",
+      type: modernWebTools ? "web_fetch_20260209" : "web_fetch_20250910",
       name: "web_fetch",
       max_uses: args.webFetchMaxUses ?? 4,
       // Bound the token cost of a single fetched page.

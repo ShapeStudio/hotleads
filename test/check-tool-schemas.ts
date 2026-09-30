@@ -15,11 +15,17 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { prospectSearchToolSchema, researchToolSchema } from "../src/schema.js";
 import { lookupToolSchema } from "../src/linkedin-lookup.js";
+import { introToolSchema } from "../src/company-intro.js";
+import { alternateLookupToolSchema } from "../src/alternate-lookup.js";
+import { sweepToolSchema } from "../src/contact-sweep.js";
 
 const TOOL_SCHEMAS = [
   ["record_research", researchToolSchema],
   ["record_prospect_search", prospectSearchToolSchema],
   ["record_profile_urls", lookupToolSchema],
+  ["record_intro", introToolSchema],
+  ["record_alternates", alternateLookupToolSchema],
+  ["record_contacts", sweepToolSchema],
 ] as const;
 
 const ajv = new Ajv2020({ strict: false, validateFormats: false });

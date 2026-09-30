@@ -22,7 +22,7 @@ export interface ResearchOptions {
   anthropicApiKey?: string;
   /** Defaults to process.env.PROXYCURL_API_KEY. Optional — see README. */
   proxycurlApiKey?: string;
-  /** Defaults to "claude-sonnet-4-6". */
+  /** Defaults to "claude-sonnet-5". */
   model?: string;
   /** standard = 13 web searches, deep = 17. */
   depth?: ResearchDepth;
@@ -51,6 +51,12 @@ The output is consumed programmatically (CRMs, outreach tooling, scripts) — co
 
 # Identity discipline
 Names repeat, especially common ones. Before attributing anything to this person, confirm the source ties the NAME to the COMPANY (or to the exact profile URL). If you cannot separate two same-named people, say so in research_notes, keep only what is jointly verified, and set meta.confidence to low. A confidently wrong dossier is the worst possible output.
+
+# Role currency (mandatory)
+The seller only cares about this person IF they still hold the role — outreach to someone who left the company is worse than no outreach. Actively check currency: is the person on the company's CURRENT team page (fetch it), and do the most RECENT sources (this year / last year) still tie them to the company? Watch the dates on everything you read.
+- Still there → person.employment_status: "current".
+- A newer source shows they LEFT → employment_status: "departed", the old role goes in past_experience (NEVER in current_role), employment_note says where they went and when (with the source), and current_role holds their NEW role only when verified.
+- No source confirms either way (e.g. only a gated profile and stale pages) → employment_status: "unverified", and say so in research_notes.
 
 # How to research
 
@@ -81,7 +87,7 @@ With a deep budget, spend the extra searches on: a second news pass, executive-t
 - company.logo_url: https://logo.clearbit.com/{domain} is acceptable once you know the domain.
 - commercials: estimate strings ALWAYS carry their basis ("~80,000 monthly visits (SimilarWeb estimate)"). Numeric twins (monthly_traffic, aov) are plain numbers — fill both forms or neither. Never invent precision; empty + a research_notes line beats a made-up number.
 - competitors[].note: grounded in something you read. competitors[].vs_positioning: how the researched company wins or differs — category-level reasoning is fine, invented facts are not. Fill hq_location when known.
-- contact: PUBLISHED business contact details only, each with the source_url you read it from. Record what the page actually shows — a company switchboard or info@ address is a useful, honest answer; label it as such ("company switchboard", "general info@ inbox", "direct line"). NEVER construct an address from a name pattern (first.last@company.com, initials@…) or from another employee's address: guessed addresses are usually wrong, they bounce, and they damage the sender's domain reputation. Prefer a person's direct details when published; otherwise give the company route and say so in contact.note. If nothing is published anywhere, leave the block empty and say that in the note — that is a legitimate result.
+- contact: PUBLISHED business contact details only, each with the source_url you read it from. Record what the page actually shows — a company switchboard or info@ address is a useful, honest answer; label it as such ("company switchboard", "general info@ inbox", "direct line"). Set reach on every item: "direct" ONLY when the page ties the detail to THIS person by name, "company" for shared routes. NEVER construct an address from a name pattern (first.last@company.com, initials@…) or from another employee's address: guessed addresses are usually wrong, they bounce, and they damage the sender's domain reputation. Prefer a person's direct details when published; otherwise give the company route and say so in contact.note. If nothing is published anywhere, leave the block empty and say that in the note — that is a legitimate result.
 - outreach: written FOR a seller approaching this person. likely_pain_points and hooks tie to the role + company stage. icebreakers are ready-to-send opening lines referencing something real from the research. talking_points cite researched specifics.
 - meta.confidence: high / medium / low by how much you actually verified.
 - meta.profile_accessible: TRUE whenever you verified this person's role and company from any source. Set FALSE only when the person could not be verified at all — a member-gated LinkedIn profile with nothing else, or a name you could never tie to the company. Having no LinkedIn profile is NOT by itself a reason to set it false.
@@ -139,7 +145,6 @@ export async function research(
   const proxycurlKey = opts.proxycurlApiKey ?? process.env.PROXYCURL_API_KEY;
   const model = opts.model ?? DEFAULT_MODEL;
   const depth: ResearchDepth = opts.depth ?? "standard";
-  const searchBudget = opts.webSearchMaxUses ?? SEARCH_BUDGET[depth];
 
   const client = new Anthropic({ apiKey });
 
@@ -148,6 +153,13 @@ export async function research(
   const proxycurl = parsedInput.linkedin_url
     ? await fetchProxycurlProfile(parsedInput.linkedin_url, proxycurlKey)
     : null;
+
+  // With verified profile data already in context, the person-identity
+  // searches (steps 1 and 4) mostly re-derive what Proxycurl handed us —
+  // trim the budget rather than re-buy it. The role-currency check keeps
+  // its searches: Proxycurl data can be stale.
+  const searchBudget =
+    opts.webSearchMaxUses ?? (proxycurl ? SEARCH_BUDGET[depth] - 3 : SEARCH_BUDGET[depth]);
 
   // With a URL the slug is a usable fallback name; without one the schema
   // guarantees an explicit name.
@@ -200,6 +212,9 @@ export async function research(
     onProgress: opts.onProgress,
     signal: opts.signal,
     batch: opts.batchMode,
+    // Nobody is watching a batch dossier — wait out a slow queue instead of
+    // canceling at 10 min and re-paying full price on the live API.
+    batchWaitMs: opts.batchMode ? 35 * 60_000 : undefined,
   });
 
   // Report spend before parsing: the tokens are already bought whether or

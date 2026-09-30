@@ -7,7 +7,14 @@ export type { ResearchOptions, ResearchDepth } from "./research.js";
 export { searchProspects } from "./search.js";
 export type { SearchProspectsOptions } from "./search.js";
 export { resolveLinkedinUrls } from "./linkedin-lookup.js";
-export { sweepCompanyContacts, SWEEP_MODEL } from "./contact-sweep.js";
+export { sweepCompanyContacts, sweepToolSchema, SWEEP_MODEL } from "./contact-sweep.js";
+export { findAlternateContacts, alternateLookupToolSchema, ALTERNATE_MAX_RESULTS } from "./alternate-lookup.js";
+export type {
+  AlternateLookupInput,
+  AlternateLookupOptions,
+  AlternateLookupResult,
+  AlternateProspect,
+} from "./alternate-lookup.js";
 export { researchEmail } from "./email-lookup.js";
 export type { EmailIdentity, EmailLookupOptions } from "./email-lookup.js";
 export type { ContactSweepInput, ContactSweepOptions, ContactSweepResult } from "./contact-sweep.js";
@@ -22,6 +29,7 @@ export {
   prospectSearchToolSchema,
   prospectLeadSchema,
   searchInputSchema,
+  assessReachability,
   SCHEMA_VERSION,
 } from "./schema.js";
 export type {
@@ -36,9 +44,16 @@ export type {
   SearchInput,
   IcpProfile,
   ProspectLead,
+  ReachChannel,
+  Reachability,
 } from "./schema.js";
 export type { ProgressEvent, OnProgress, CallUsage, OnUsage } from "./anthropic.js";
 export { DEFAULT_MODEL } from "./anthropic.js";
+export { introduceCompany, INTRO_MODEL } from "./company-intro.js";
+export { formatSellerProfile } from "./search.js";
+export { sellerProfileSchema } from "./schema.js";
+export type { SellerProfile } from "./schema.js";
+export type { CompanyIntro, CompanyIntroOptions } from "./company-intro.js";
 export { scoreLeads, rankKey, SCORER_VERSION } from "./lead-score.js";
 export type { LeadScore, LeadScoreOptions } from "./lead-score.js";
 export { noul, score, choice, typesafeConfigured, DEFAULT_JEV_MODEL } from "./typesafe.js";
