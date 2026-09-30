@@ -1,9 +1,9 @@
-// landermixer CLI — deep prospect research from any LinkedIn URL,
+// hotleads CLI — deep prospect research from any LinkedIn URL,
 // and prospect search from your own company URL.
 //
-//   npx landermixer <linkedin-url> [--company-url <url>] [--depth standard|deep]
-//   npx landermixer --csv prospects.csv --out results/ --concurrency 3
-//   npx landermixer search <your-company-url> [--target <icp>] [--research]
+//   npx hotleads <linkedin-url> [--company-url <url>] [--depth standard|deep]
+//   npx hotleads --csv prospects.csv --out results/ --concurrency 3
+//   npx hotleads search <your-company-url> [--target <icp>] [--research]
 //
 // JSON goes to stdout (pipe-friendly); all progress goes to stderr.
 // Exit codes: 0 ok · 1 usage/config error · 2 total failure · 3 partial failure
@@ -23,13 +23,13 @@ import { makeProgressRenderer, log, ok, fail } from "./progress.js";
 
 loadDotenv();
 
-const HELP = `landermixer — prospect research and prospect search. Structured JSON out.
+const HELP = `hotleads — prospect research and prospect search. Structured JSON out.
 
 Usage:
-  landermixer <linkedin-url> [options]          research one prospect
-  landermixer --name <person> --company <org>   research someone with no LinkedIn
-  landermixer --csv <file> --out <dir> [opts]   research a CSV of prospects
-  landermixer search <your-company-url> [opts]  find prospects from your own site
+  hotleads <linkedin-url> [options]          research one prospect
+  hotleads --name <person> --company <org>   research someone with no LinkedIn
+  hotleads --csv <file> --out <dir> [opts]   research a CSV of prospects
+  hotleads search <your-company-url> [opts]  find prospects from your own site
 
 Research options:
   --company-url <url>    the prospect company's website (anchors company research)
@@ -67,12 +67,12 @@ Environment:
   PROXYCURL_API_KEY      optional — verified LinkedIn data for gated profiles
 
 Examples:
-  landermixer https://www.linkedin.com/in/zigakerec/ --pretty
-  landermixer --name "Sabina Juhart" --company "xPLUS d.o.o." --company-url https://xplus.si
-  landermixer --csv prospects.csv --out results/ --concurrency 3
-  landermixer search https://www.your-company.com --pretty
-  landermixer search https://acme.dev --target "Heads of RevOps at Series A-B SaaS in DACH"
-  landermixer search https://acme.dev --count 8 --research --out prospects/
+  hotleads https://www.linkedin.com/in/zigakerec/ --pretty
+  hotleads --name "Sabina Juhart" --company "xPLUS d.o.o." --company-url https://xplus.si
+  hotleads --csv prospects.csv --out results/ --concurrency 3
+  hotleads search https://www.your-company.com --pretty
+  hotleads search https://acme.dev --target "Heads of RevOps at Series A-B SaaS in DACH"
+  hotleads search https://acme.dev --count 8 --research --out prospects/
 `;
 
 function slugify(s: string): string {

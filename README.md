@@ -1,12 +1,12 @@
-# landermixer
+# hotleads
 
 **Deep prospect research on any decision-maker — and prospect search from your own company URL. Structured JSON out.**
 
-One command runs a research agent that works through up to 15 targeted web searches — the person, their company, its global and home-market competitors, funding, news, hiring, traffic, pricing, and published contact details — and returns a single validated JSON dossier you can pipe anywhere. A LinkedIn URL is the strongest anchor, but it isn't required: `--name` + `--company` works for the many owners and directors who simply aren't on LinkedIn. Don't have a prospect list yet? [`landermixer search`](#prospect-search) starts from your own website and finds one.
+One command runs a research agent that works through up to 15 targeted web searches — the person, their company, its global and home-market competitors, funding, news, hiring, traffic, pricing, and published contact details — and returns a single validated JSON dossier you can pipe anywhere. A LinkedIn URL is the strongest anchor, but it isn't required: `--name` + `--company` works for the many owners and directors who simply aren't on LinkedIn. Don't have a prospect list yet? [`hotleads search`](#prospect-search) starts from your own website and finds one.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-…
-npx landermixer https://www.linkedin.com/in/zigakerec/ --company-url https://www.shape-labs.com
+npx hotleads https://www.linkedin.com/in/zigakerec/ --company-url https://www.shape-labs.com
 ```
 
 ```jsonc
@@ -60,32 +60,32 @@ Full example (a real, unedited run on our own founder's profile): [`examples/sam
 
 ```bash
 # one-off
-npx landermixer <linkedin-url>
+npx hotleads <linkedin-url>
 
 # or install
-npm i -g landermixer
-landermixer <linkedin-url> --pretty
+npm i -g hotleads
+hotleads <linkedin-url> --pretty
 ```
 
 **Single prospect**
 
 ```bash
-landermixer https://linkedin.com/in/jane-doe --company-url https://acme.com
-landermixer https://linkedin.com/in/jane-doe --json | jq '.outreach.hooks'
-landermixer https://linkedin.com/in/jane-doe --depth deep --out jane.json
+hotleads https://linkedin.com/in/jane-doe --company-url https://acme.com
+hotleads https://linkedin.com/in/jane-doe --json | jq '.outreach.hooks'
+hotleads https://linkedin.com/in/jane-doe --depth deep --out jane.json
 ```
 
 **No LinkedIn profile?** Anchor on the person's name and their company instead — the agent identifies them from the company site and public records, and never invents a profile URL to fill the gap.
 
 ```bash
-landermixer --name "Jane Doe" --company "Acme d.o.o." --company-url https://acme.com
-landermixer --name "Jane Doe" --company "Acme d.o.o." --json | jq '.contact'
+hotleads --name "Jane Doe" --company "Acme d.o.o." --company-url https://acme.com
+hotleads --name "Jane Doe" --company "Acme d.o.o." --json | jq '.contact'
 ```
 
 **Batch (CSV)**
 
 ```bash
-landermixer --csv prospects.csv --out results/ --concurrency 3
+hotleads --csv prospects.csv --out results/ --concurrency 3
 ```
 
 The CSV needs a `linkedin_url` column; `company_url`, `name`, `company`, `notes` are optional ([example](examples/prospects.example.csv)). One JSON file per prospect lands in `--out`; a bad row never aborts the batch (exit code `3` signals partial failure).
@@ -94,12 +94,12 @@ JSON goes to **stdout**, progress to **stderr** — pipe-safe by design.
 
 ## Prospect search
 
-No list yet? Point `landermixer search` at **your own website**. It reads what you sell, commits to an ICP (ideal customer profile — industries, company sizes, geographies, buyer titles), then hunts for matching decision-makers at other companies across team pages, conference agendas, news, and public profile snippets.
+No list yet? Point `hotleads search` at **your own website**. It reads what you sell, commits to an ICP (ideal customer profile — industries, company sizes, geographies, buyer titles), then hunts for matching decision-makers at other companies across team pages, conference agendas, news, and public profile snippets.
 
 ```bash
-landermixer search https://www.your-company.com --pretty
-landermixer search https://acme.dev --target "Heads of RevOps at Series A-B SaaS in DACH"
-landermixer search https://acme.dev --count 8 --research --out prospects/
+hotleads search https://www.your-company.com --pretty
+hotleads search https://acme.dev --target "Heads of RevOps at Series A-B SaaS in DACH"
+hotleads search https://acme.dev --count 8 --research --out prospects/
 ```
 
 ```jsonc
@@ -136,7 +136,7 @@ The sample fixture [`examples/sample-search-output.json`](examples/sample-search
 ## Library
 
 ```ts
-import { research, researchMany, prospectResearchSchema } from "landermixer";
+import { research, researchMany, prospectResearchSchema } from "hotleads";
 
 const dossier = await research(
   { linkedin_url: "https://linkedin.com/in/jane-doe", company_url: "https://acme.com" },
@@ -150,7 +150,7 @@ const dossier = await research(
 Search-then-research is a two-liner:
 
 ```ts
-import { searchProspects, researchMany } from "landermixer";
+import { searchProspects, researchMany } from "hotleads";
 
 const found = await searchProspects({ company_url: "https://acme.com", count: 10 });
 const dossiers = await researchMany(
@@ -195,4 +195,4 @@ Personalized one-pagers and sales decks generated from this research + your own 
 
 ## License
 
-[MIT](LICENSE) · built by [SHAPE](https://www.shape-labs.com) · [landermixer.com](https://landermixer.com)
+[MIT](LICENSE) · built by [SHAPE](https://www.shape-labs.com) · [hotleads.si](https://hotleads.si)

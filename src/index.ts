@@ -1,6 +1,6 @@
-// landermixer — deep prospect research from any LinkedIn URL,
+// hotleads — deep prospect research from any LinkedIn URL,
 // and prospect search from your own company URL.
-// Library entry. See https://github.com/ShapeStudio/landermixer
+// Library entry. See https://github.com/ShapeStudio/hotleads
 
 export { research, nameFromLinkedinUrl } from "./research.js";
 export type { ResearchOptions, ResearchDepth } from "./research.js";

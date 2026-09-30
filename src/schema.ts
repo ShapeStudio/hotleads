@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// The LanderMixer prospect-research schema — this shape IS the product.
+// The HotLeads prospect-research schema — this shape IS the product.
 //
 // Design rules (learned in production, keep them):
 //   - clip()/clipOpt(): truncate over-long model output instead of failing
