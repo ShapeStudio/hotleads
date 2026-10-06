@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
+import { callStructured, DEFAULT_MODEL, type EffortLevel, type OnProgress, type OnUsage } from "./anthropic.js";
 import { resolveLinkedinUrls, LOOKUP_MAX_PEOPLE } from "./linkedin-lookup.js";
+import { plausibleProfileUrl } from "./profile-url.js";
 import type { ResearchDepth } from "./research.js";
 import {
   normalizeMetaField,
@@ -33,6 +34,12 @@ export interface SearchProspectsOptions {
    * URL — see linkedin-lookup.ts.
    */
   resolveLinkedinUrls?: boolean;
+  /** output_config.effort — see callStructured. Unset = API default (high). */
+  effort?: EffortLevel;
+  /** "direct" skips the server-side filtering sandbox — see callStructured. */
+  webToolCalling?: "filtered" | "direct";
+  /** "excluded" stops consumed search results being echoed as output tokens. */
+  responseInclusion?: "full" | "excluded";
   onProgress?: OnProgress;
   /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
   onUsage?: OnUsage;
@@ -196,7 +203,18 @@ export async function searchProspects(
     // tokens; the historical 15k default was re-read on every later turn of
     // a ~19-turn loop, which is where much of the per-turn latency went.
     maxContentTokens: 8000,
-    maxTokens: 8192,
+    // Thinking counts toward max_tokens in the turn that writes the output:
+    // at 8192 the result JSON was being cut off behind a long think.
+    maxTokens: 16384,
+    // Measured 2026-10-06 on the production prompt (one seller, fixed target):
+    //   filtered tools, high effort (the old default): 166–426 s per search,
+    //   60% of it thinking; direct tools + medium effort: 61–68 s with the
+    //   same prospect count and every lead URL-verified after the lookup.
+    // Medium rather than low: "comparable to Sonnet 4.6 at high effort",
+    // which is the quality bar this prompt was written against.
+    effort: opts.effort ?? "medium",
+    webToolCalling: opts.webToolCalling ?? "direct",
+    responseInclusion: opts.responseInclusion,
     onProgress: opts.onProgress,
     signal: opts.signal,
     batch: opts.batchMode,
@@ -213,6 +231,15 @@ export async function searchProspects(
   // before validation (see stripNulls docs) — and occasionally emit meta as
   // a prose string (see normalizeMetaField docs).
   const parsed = prospectSearchToolSchema.parse(normalizeMetaField(stripNulls(output)));
+
+  // A URL that shares nothing with the person's name came from a neighbouring
+  // search result, not from them. Drop it here so the lookup pass below gets
+  // a stricter second try instead of trusting it.
+  for (const prospect of parsed.prospects) {
+    if (prospect.linkedin_url && !plausibleProfileUrl(prospect.full_name, prospect.linkedin_url)) {
+      prospect.linkedin_url = undefined;
+    }
+  }
 
   // Prospects sourced from team pages, registers, or conference listings
   // often arrive without a profile URL. One targeted pass fills in the ones
@@ -247,7 +274,9 @@ export async function searchProspects(
       lookupSearches = used;
       urls.forEach((url, i) => {
         const target = missing[i];
-        if (url && target) parsed.prospects[target.index]!.linkedin_url = url;
+        if (url && target && plausibleProfileUrl(target.prospect.full_name, url)) {
+          parsed.prospects[target.index]!.linkedin_url = url;
+        }
       });
     }
   }

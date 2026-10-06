@@ -124,7 +124,12 @@ export async function researchEmail(
     // Up to 12 fetches here — at the 15k default that is a context nobody
     // needs for a signature block, a contact page or a LinkedIn snippet.
     maxContentTokens: 6000,
-    maxTokens: 2500,
+    // Thinking counts toward max_tokens; the old cap truncated the output
+    // behind a long think once effort was measured. Direct tools + medium
+    // effort: the search-call measurements (search.ts) apply — same loop.
+    maxTokens: 8192,
+    effort: "medium",
+    webToolCalling: "direct",
     onProgress: opts.onProgress,
     signal: opts.signal,
   });

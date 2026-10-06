@@ -179,7 +179,12 @@ export async function findAlternateContacts(
     // Team/imprint pages don't need the default 15k-token fetch cap, and this
     // pass runs on the big model where re-billed fetch tokens actually hurt.
     maxContentTokens: 8000,
-    maxTokens: 3000,
+    // Thinking counts toward max_tokens; the old cap truncated the output
+    // behind a long think once effort was measured. Direct tools + medium
+    // effort: the search-call measurements (search.ts) apply — same loop.
+    maxTokens: 8192,
+    effort: "medium",
+    webToolCalling: "direct",
     onProgress: opts.onProgress,
     signal: opts.signal,
   });

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
+import { callStructured, DEFAULT_MODEL, type EffortLevel, type OnProgress, type OnUsage } from "./anthropic.js";
 import { fetchProxycurlProfile } from "./proxycurl.js";
 import {
   normalizeMetaField,
@@ -28,6 +28,12 @@ export interface ResearchOptions {
   depth?: ResearchDepth;
   /** Override the search budget directly (wins over depth). */
   webSearchMaxUses?: number;
+  /** output_config.effort — see callStructured. Unset = API default (high). */
+  effort?: EffortLevel;
+  /** "direct" skips the server-side filtering sandbox — see callStructured. */
+  webToolCalling?: "filtered" | "direct";
+  /** "excluded" stops consumed search results being echoed as output tokens. */
+  responseInclusion?: "full" | "excluded";
   onProgress?: OnProgress;
   /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
   onUsage?: OnUsage;
@@ -211,7 +217,14 @@ export async function research(
     // Same reasoning as search.ts: a fetched page is paid again on every
     // subsequent turn, so cap it at what a profile, about or news page needs.
     maxContentTokens: 8000,
-    maxTokens: 8192,
+    // Thinking shares max_tokens with the dossier JSON (which is large) —
+    // see search.ts.
+    maxTokens: 16384,
+    effort: opts.effort,
+    // The filtering sandbox behind the _20260209 tools is pure latency on
+    // this call shape — measured on search.ts; same tools, same loop.
+    webToolCalling: opts.webToolCalling ?? "direct",
+    responseInclusion: opts.responseInclusion,
     onProgress: opts.onProgress,
     signal: opts.signal,
     batch: opts.batchMode,
