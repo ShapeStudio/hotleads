@@ -51,6 +51,7 @@ export type { ProgressEvent, OnProgress, CallUsage, OnUsage } from "./anthropic.
 export { DEFAULT_MODEL } from "./anthropic.js";
 export { introduceCompany, INTRO_MODEL } from "./company-intro.js";
 export { formatSellerProfile } from "./search.js";
+export { plausibleProfileUrl } from "./profile-url.js";
 export { sellerProfileSchema } from "./schema.js";
 export type { SellerProfile } from "./schema.js";
 export type { CompanyIntro, CompanyIntroOptions } from "./company-intro.js";

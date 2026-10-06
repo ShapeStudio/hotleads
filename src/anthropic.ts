@@ -169,6 +169,7 @@ export async function callStructured<T>(args: {
   if (args.batch) {
     const message = await runBatchWithFallback<T>(args, requestParams, requestOptions);
     if (message) {
+      assertNotTruncated(message, args.toolName, requestParams.max_tokens);
       let searchesUsed = 0;
       let fetchesUsed = 0;
       // The SDK's Message content union predates server tools — inspect raw.
@@ -250,6 +251,7 @@ export async function callStructured<T>(args: {
 
   const response = await stream.finalMessage();
   args.onProgress?.({ type: "done", searchesUsed, fetchesUsed });
+  assertNotTruncated(response, args.toolName, requestParams.max_tokens);
 
   for (const block of response.content) {
     if (block.type === "tool_use" && block.name === args.toolName) {
@@ -266,6 +268,19 @@ export async function callStructured<T>(args: {
   );
 }
 
+/**
+ * A response cut off by max_tokens still carries the output tool block —
+ * with partial JSON, which then fails schema validation with a misleading
+ * "prospects: Required". Name the real cause. The usual trigger is prose:
+ * narration written in the final turn shares the token budget with the
+ * tool input, and 27k tokens of it were once observed before the JSON.
+ */
+function assertNotTruncated(message: Anthropic.Message, toolName: string, maxTokens: number) {
+  if (message.stop_reason !== "max_tokens") return;
+  throw new Error(
+    `model hit max_tokens (${maxTokens}) before finishing ${toolName}; output_tokens=${message.usage?.output_tokens ?? "?"} — the structured output was truncated`,
+  );
+}
 
 /**
  * Submit the request as a one-item batch and poll until it ends — or until

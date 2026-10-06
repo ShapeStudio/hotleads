@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
 import { resolveLinkedinUrls, LOOKUP_MAX_PEOPLE } from "./linkedin-lookup.js";
+import { plausibleProfileUrl } from "./profile-url.js";
 import type { ResearchDepth } from "./research.js";
 import {
   normalizeMetaField,
@@ -214,6 +215,15 @@ export async function searchProspects(
   // a prose string (see normalizeMetaField docs).
   const parsed = prospectSearchToolSchema.parse(normalizeMetaField(stripNulls(output)));
 
+  // A URL that shares nothing with the person's name came from a neighbouring
+  // search result, not from them. Drop it here so the lookup pass below gets
+  // a stricter second try instead of trusting it.
+  for (const prospect of parsed.prospects) {
+    if (prospect.linkedin_url && !plausibleProfileUrl(prospect.full_name, prospect.linkedin_url)) {
+      prospect.linkedin_url = undefined;
+    }
+  }
+
   // Prospects sourced from team pages, registers, or conference listings
   // often arrive without a profile URL. One targeted pass fills in the ones
   // that are actually findable — it never guesses (see linkedin-lookup.ts).
@@ -247,7 +257,9 @@ export async function searchProspects(
       lookupSearches = used;
       urls.forEach((url, i) => {
         const target = missing[i];
-        if (url && target) parsed.prospects[target.index]!.linkedin_url = url;
+        if (url && target && plausibleProfileUrl(target.prospect.full_name, url)) {
+          parsed.prospects[target.index]!.linkedin_url = url;
+        }
       });
     }
   }
