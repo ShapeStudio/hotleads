@@ -18,6 +18,7 @@ import { lookupToolSchema } from "../src/linkedin-lookup.js";
 import { introToolSchema } from "../src/company-intro.js";
 import { alternateLookupToolSchema } from "../src/alternate-lookup.js";
 import { sweepToolSchema } from "../src/contact-sweep.js";
+import { searchPlanToolSchema, companyPeopleToolSchema } from "../src/search-staged.js";
 
 const TOOL_SCHEMAS = [
   ["record_research", researchToolSchema],
@@ -26,6 +27,8 @@ const TOOL_SCHEMAS = [
   ["record_intro", introToolSchema],
   ["record_alternates", alternateLookupToolSchema],
   ["record_contacts", sweepToolSchema],
+  ["record_search_plan", searchPlanToolSchema],
+  ["record_company_people", companyPeopleToolSchema],
 ] as const;
 
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
