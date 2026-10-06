@@ -5,6 +5,8 @@
 export { research, nameFromLinkedinUrl } from "./research.js";
 export type { ResearchOptions, ResearchDepth } from "./research.js";
 export { searchProspects } from "./search.js";
+export { searchProspectsStaged, searchPlanToolSchema, companyPeopleToolSchema } from "./search-staged.js";
+export type { StagedSearchOptions } from "./search-staged.js";
 export type { SearchProspectsOptions } from "./search.js";
 export { resolveLinkedinUrls } from "./linkedin-lookup.js";
 export { sweepCompanyContacts, sweepToolSchema, SWEEP_MODEL } from "./contact-sweep.js";
