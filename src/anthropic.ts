@@ -21,6 +21,16 @@ export type OnProgress = (event: ProgressEvent) => void;
 export type EffortLevel = "low" | "medium" | "high";
 
 /**
+ * Sonnet 5 issues independent searches in bursts of 3–5 per turn. When a
+ * burst overshoots max_uses, the extra calls come back as
+ * max_uses_exceeded and the model spends further turns retrying them
+ * ("the tool hit a hard limit") — observed in benchmark transcripts. The
+ * prompt states the real budget; the tool gets this much slack so a burst
+ * at the end of the budget lands instead of erroring.
+ */
+export const BURST_HEADROOM = 4;
+
+/**
  * A long server-tool turn can come back as stop_reason "pause_turn" with
  * the output tool not yet called. Each continuation re-sends the paused
  * content as-is; this caps how many times before giving up.
@@ -97,8 +107,10 @@ export async function callStructured<T>(args: {
   toolInputSchema: Record<string, unknown>;
   cacheSystem?: boolean;
   webSearch?: boolean;
+  /** The budget the prompt states; the tool itself gets BURST_HEADROOM more. */
   webSearchMaxUses?: number;
   webFetch?: boolean;
+  /** Same headroom rule as webSearchMaxUses. */
   webFetchMaxUses?: number;
   /**
    * Cap on tokens kept from ONE fetched page. Costly: fetched content stays
@@ -176,7 +188,7 @@ export async function callStructured<T>(args: {
           : "web_search_20260209"
         : "web_search_20250305",
       name: "web_search",
-      max_uses: args.webSearchMaxUses ?? 3,
+      max_uses: (args.webSearchMaxUses ?? 3) + BURST_HEADROOM,
       ...webToolExtras,
     } as unknown as Anthropic.ToolUnion);
   }
@@ -188,7 +200,7 @@ export async function callStructured<T>(args: {
           : "web_fetch_20260209"
         : "web_fetch_20250910",
       name: "web_fetch",
-      max_uses: args.webFetchMaxUses ?? 4,
+      max_uses: (args.webFetchMaxUses ?? 4) + BURST_HEADROOM,
       // Bound the token cost of a single fetched page.
       max_content_tokens: args.maxContentTokens ?? 15000,
       ...webToolExtras,
