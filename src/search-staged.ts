@@ -22,7 +22,7 @@ import {
   type OnProgress,
   type OnUsage,
 } from "./anthropic.js";
-import { resolveLinkedinUrls, LOOKUP_MAX_PEOPLE } from "./linkedin-lookup.js";
+import { resolveLinkedinUrls } from "./linkedin-lookup.js";
 import { plausibleProfileUrl } from "./profile-url.js";
 import { formatSellerProfile } from "./search.js";
 import {
@@ -366,6 +366,23 @@ export async function searchProspectsStaged(
             location: p.location ?? candidate.location,
           }))
           .slice(0, perCompany);
+        // Backfill missing profile URLs here, inside this company's slot,
+        // rather than once at the end: onCompany then hands over rows that
+        // are complete, so a caller can persist them without a later patch.
+        if (opts.resolveLinkedinUrls !== false) {
+          const missing = prospects.filter((p) => !p.linkedin_url);
+          if (missing.length > 0) {
+            const { urls, searchesUsed: used } = await resolveLinkedinUrls(
+              missing.map((p) => ({ full_name: p.full_name, company: p.company, title: p.title })),
+              { client, onProgress: opts.onProgress, onUsage: opts.onUsage, signal: opts.signal },
+            );
+            searchesUsed += used;
+            urls.forEach((url, i) => {
+              const target = missing[i];
+              if (url && target && plausibleProfileUrl(target.full_name, url)) target.linkedin_url = url;
+            });
+          }
+        }
         opts.onCompany?.(candidate.company, prospects);
         return { candidate, prospects, notes: parsed.notes };
       } catch (err) {
@@ -382,31 +399,6 @@ export async function searchProspectsStaged(
     perCompanyResults.map((r) => r.prospects),
     count,
   );
-
-  let lookupSearches = 0;
-  if (opts.resolveLinkedinUrls !== false) {
-    const missing = prospects
-      .map((prospect, index) => ({ prospect, index }))
-      .filter(({ prospect }) => !prospect.linkedin_url)
-      .slice(0, LOOKUP_MAX_PEOPLE);
-    if (missing.length > 0) {
-      const { urls, searchesUsed: used } = await resolveLinkedinUrls(
-        missing.map(({ prospect }) => ({
-          full_name: prospect.full_name,
-          company: prospect.company,
-          title: prospect.title,
-        })),
-        { client, onProgress: opts.onProgress, onUsage: opts.onUsage, signal: opts.signal },
-      );
-      lookupSearches = used;
-      urls.forEach((url, i) => {
-        const target = missing[i];
-        if (url && target && plausibleProfileUrl(target.prospect.full_name, url)) {
-          prospects[target.index]!.linkedin_url = url;
-        }
-      });
-    }
-  }
 
   const dry = perCompanyResults.filter((r) => r.prospects.length === 0).length;
   const high = prospects.filter((p) => p.confidence === "high").length;
@@ -431,7 +423,7 @@ export async function searchProspectsStaged(
       research_notes: notes,
       searched_at: new Date().toISOString(),
       model,
-      searches_used: searchesUsed + lookupSearches,
+      searches_used: searchesUsed,
       fetches_used: fetchesUsed,
       schema_version: SCHEMA_VERSION,
     },
