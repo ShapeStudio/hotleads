@@ -217,9 +217,13 @@ export async function research(
     // Same reasoning as search.ts: a fetched page is paid again on every
     // subsequent turn, so cap it at what a profile, about or news page needs.
     maxContentTokens: 8000,
-    maxTokens: 8192,
+    // Thinking shares max_tokens with the dossier JSON (which is large) —
+    // see search.ts.
+    maxTokens: 16384,
     effort: opts.effort,
-    webToolCalling: opts.webToolCalling,
+    // The filtering sandbox behind the _20260209 tools is pure latency on
+    // this call shape — measured on search.ts; same tools, same loop.
+    webToolCalling: opts.webToolCalling ?? "direct",
     responseInclusion: opts.responseInclusion,
     onProgress: opts.onProgress,
     signal: opts.signal,

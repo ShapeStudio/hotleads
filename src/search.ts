@@ -203,9 +203,17 @@ export async function searchProspects(
     // tokens; the historical 15k default was re-read on every later turn of
     // a ~19-turn loop, which is where much of the per-turn latency went.
     maxContentTokens: 8000,
-    maxTokens: 8192,
-    effort: opts.effort,
-    webToolCalling: opts.webToolCalling,
+    // Thinking counts toward max_tokens in the turn that writes the output:
+    // at 8192 the result JSON was being cut off behind a long think.
+    maxTokens: 16384,
+    // Measured 2026-10-06 on the production prompt (one seller, fixed target):
+    //   filtered tools, high effort (the old default): 166–426 s per search,
+    //   60% of it thinking; direct tools + medium effort: 61–68 s with the
+    //   same prospect count and every lead URL-verified after the lookup.
+    // Medium rather than low: "comparable to Sonnet 4.6 at high effort",
+    // which is the quality bar this prompt was written against.
+    effort: opts.effort ?? "medium",
+    webToolCalling: opts.webToolCalling ?? "direct",
     responseInclusion: opts.responseInclusion,
     onProgress: opts.onProgress,
     signal: opts.signal,
