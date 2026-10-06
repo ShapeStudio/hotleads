@@ -48,11 +48,15 @@ export type LeadScore = {
 };
 
 export interface LeadScoreOptions extends TypeSafeOptions {
-  /** Parallel calls in flight. Matches the contact sweep's concurrency. */
+  /**
+   * Parallel calls in flight. These are short HTTP calls with a 5 s timeout
+   * each — eight keeps a 20-lead round to a few seconds rather than lockstep
+   * waves of four.
+   */
   concurrency?: number;
 }
 
-const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_CONCURRENCY = 8;
 
 /**
  * The rubric. Index = score, so this array has 11 entries and the described
@@ -135,51 +139,56 @@ export async function scoreLeads(
 
   const model = opts.model ?? DEFAULT_JEV_MODEL;
   const out: (LeadScore | null)[] = new Array(leads.length).fill(null);
-  const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
+  const concurrency = Math.max(
+    1,
+    Math.min(opts.concurrency ?? DEFAULT_CONCURRENCY, leads.length),
+  );
 
   // One call per lead, four questions per call. Batching LEADS into a single
   // state would make each score conditional on its neighbours — that turns
   // absolute scoring into relative ranking, losing the calibration that is
   // the entire reason for using this model.
-  for (let i = 0; i < leads.length; i += concurrency) {
-    const chunk = leads.slice(i, i + concurrency);
-    const scored = await Promise.all(
-      chunk.map(async (lead, j) => {
-        try {
-          const raw = await call(
-            { state: stateFor(lead, icp), questions: QUESTIONS, model },
-            opts.signal,
-          );
-          const parsed = parseSystemOne(raw);
-          if (!parsed) return null;
-          const fit = parsed.answers.fit;
-          const dm = parsed.answers.decision_maker;
-          const reach = parsed.answers.reachable;
-          // All three or nothing: a partial answer set means the rubric and
-          // the response have drifted apart, and a half-scored lead would
-          // still sort as if it were fully judged.
-          if (fit?.type !== "score" || dm?.type !== "noul" || reach?.type !== "noul") return null;
-          return {
-            index: i + j,
-            value: {
-              fit: Math.round(Math.min(10, Math.max(0, fit.score)) * 10) / 10,
-              decision_maker: clamp01(dm.noul),
-              reachable: clamp01(reach.noul),
-              scorer: "jev" as const,
-              model: parsed.model,
-              scored_at: new Date().toISOString(),
-              v: SCORER_VERSION,
-            },
-          };
-        } catch {
-          // No opinion. Scoring is an enhancement, never a dependency —
-          // the same contract contact enrichment has.
-          return null;
-        }
-      }),
-    );
-    for (const entry of scored) if (entry) out[entry.index] = entry.value;
-  }
+  //
+  // Sliding window, not lockstep chunks: a lead whose call runs into the
+  // timeout holds only its own slot, and the next lead starts the moment any
+  // slot frees up.
+  const scoreOne = async (i: number): Promise<void> => {
+    const lead = leads[i];
+    if (!lead) return;
+    try {
+      const raw = await call(
+        { state: stateFor(lead, icp), questions: QUESTIONS, model },
+        opts.signal,
+      );
+      const parsed = parseSystemOne(raw);
+      if (!parsed) return;
+      const fit = parsed.answers.fit;
+      const dm = parsed.answers.decision_maker;
+      const reach = parsed.answers.reachable;
+      // All three or nothing: a partial answer set means the rubric and
+      // the response have drifted apart, and a half-scored lead would
+      // still sort as if it were fully judged.
+      if (fit?.type !== "score" || dm?.type !== "noul" || reach?.type !== "noul") return;
+      out[i] = {
+        fit: Math.round(Math.min(10, Math.max(0, fit.score)) * 10) / 10,
+        decision_maker: clamp01(dm.noul),
+        reachable: clamp01(reach.noul),
+        scorer: "jev" as const,
+        model: parsed.model,
+        scored_at: new Date().toISOString(),
+        v: SCORER_VERSION,
+      };
+    } catch {
+      // No opinion. Scoring is an enhancement, never a dependency —
+      // the same contract contact enrichment has.
+    }
+  };
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (next < leads.length) await scoreOne(next++);
+    }),
+  );
   return out;
 }
 

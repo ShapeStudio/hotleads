@@ -192,6 +192,10 @@ export async function searchProspects(
     webSearchMaxUses: searchBudget,
     webFetch: true,
     webFetchMaxUses: FETCH_BUDGET,
+    // A team or about page carries its people in the first few thousand
+    // tokens; the historical 15k default was re-read on every later turn of
+    // a ~19-turn loop, which is where much of the per-turn latency went.
+    maxContentTokens: 8000,
     maxTokens: 8192,
     onProgress: opts.onProgress,
     signal: opts.signal,

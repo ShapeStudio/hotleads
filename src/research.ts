@@ -208,6 +208,9 @@ export async function research(
     webSearchMaxUses: searchBudget,
     webFetch: true,
     webFetchMaxUses: FETCH_BUDGET,
+    // Same reasoning as search.ts: a fetched page is paid again on every
+    // subsequent turn, so cap it at what a profile, about or news page needs.
+    maxContentTokens: 8000,
     maxTokens: 8192,
     onProgress: opts.onProgress,
     signal: opts.signal,
