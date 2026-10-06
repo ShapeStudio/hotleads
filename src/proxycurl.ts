@@ -9,6 +9,11 @@
 
 const ENDPOINT = "https://nubela.co/proxycurl/api/v2/linkedin";
 const MAX_ATTEMPTS = 2;
+// This fetch runs BEFORE the research call starts, so its worst case is pure
+// added latency: two 20 s attempts put a dossier 40 s behind before the
+// model had seen a byte. Proxycurl's own cache answers in well under 8 s;
+// anything slower is better abandoned for the web-only budget.
+const ATTEMPT_TIMEOUT_MS = 8_000;
 
 export type ProxycurlExperience = {
   starts_at?: { day?: number; month?: number; year?: number } | null;
@@ -68,7 +73,7 @@ export async function fetchProxycurlProfile(
     try {
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       });
       if (res.ok) return (await res.json()) as ProxycurlProfile;
       if (res.status === 404) return null; // profile doesn't exist — no retry

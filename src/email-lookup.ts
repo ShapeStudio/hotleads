@@ -121,6 +121,9 @@ export async function researchEmail(
     webSearchMaxUses: opts.deep ? 14 : 8,
     webFetch: true,
     webFetchMaxUses: opts.deep ? 12 : 8,
+    // Up to 12 fetches here — at the 15k default that is a context nobody
+    // needs for a signature block, a contact page or a LinkedIn snippet.
+    maxContentTokens: 6000,
     maxTokens: 2500,
     onProgress: opts.onProgress,
     signal: opts.signal,

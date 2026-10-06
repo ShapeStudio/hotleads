@@ -1,5 +1,5 @@
 {
-  "name": "landermixer",
+  "name": "hotleads",
   "version": "0.1.0",
   "description": "Deep prospect research from any LinkedIn URL, and prospect search from your own company URL — structured JSON out. Open-source, bring your own API keys.",
   "keywords": [
@@ -20,17 +20,17 @@
   "author": "SHAPE (https://www.shape-labs.com)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ShapeStudio/landermixer.git"
+    "url": "git+https://github.com/ShapeStudio/hotleads.git"
   },
-  "homepage": "https://landermixer.com",
-  "bugs": "https://github.com/ShapeStudio/landermixer/issues",
+  "homepage": "https://hotleads.si",
+  "bugs": "https://github.com/ShapeStudio/hotleads/issues",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
   "packageManager": "pnpm@10.30.3",
   "bin": {
-    "landermixer": "./dist/cli/main.js"
+    "hotleads": "./dist/cli/main.js"
   },
   "exports": {
     ".": {
