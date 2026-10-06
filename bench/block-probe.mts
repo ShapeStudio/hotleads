@@ -8,7 +8,7 @@ import { prospectSearchToolSchema } from "../src/schema.js";
 
 const OUT = new URL("./out/", import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
-const searchSrc = readFileSync("../src/search.ts", "utf8");
+const searchSrc = readFileSync(new URL("../src/search.ts", import.meta.url), "utf8");
 const BASE_PROMPT = searchSrc.match(/const SYSTEM_PROMPT = `([\s\S]*?)`;\n\nconst toolInputSchema/)![1]!.replace(/\\`/g, "`");
 const apiKey = process.env.ANTHROPIC_API_KEY; if (!apiKey) throw new Error("set ANTHROPIC_API_KEY");
 const { search_callers, fetch_callers, search_tool, fetch_tool, response_inclusion, ...extra } = JSON.parse(process.argv[2] ?? "{}") as Record<string, any>; // e.g. {"output_config":{"effort":"low"}} or {"search_callers":["direct"]}
