@@ -47,7 +47,7 @@ export type {
   ReachChannel,
   Reachability,
 } from "./schema.js";
-export type { ProgressEvent, OnProgress, CallUsage, OnUsage } from "./anthropic.js";
+export type { ProgressEvent, OnProgress, CallUsage, OnUsage, EffortLevel } from "./anthropic.js";
 export { DEFAULT_MODEL } from "./anthropic.js";
 export { introduceCompany, INTRO_MODEL } from "./company-intro.js";
 export { formatSellerProfile } from "./search.js";

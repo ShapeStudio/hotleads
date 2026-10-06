@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { callStructured, DEFAULT_MODEL, type OnProgress, type OnUsage } from "./anthropic.js";
+import { callStructured, DEFAULT_MODEL, type EffortLevel, type OnProgress, type OnUsage } from "./anthropic.js";
 import { resolveLinkedinUrls, LOOKUP_MAX_PEOPLE } from "./linkedin-lookup.js";
 import { plausibleProfileUrl } from "./profile-url.js";
 import type { ResearchDepth } from "./research.js";
@@ -34,6 +34,12 @@ export interface SearchProspectsOptions {
    * URL — see linkedin-lookup.ts.
    */
   resolveLinkedinUrls?: boolean;
+  /** output_config.effort — see callStructured. Unset = API default (high). */
+  effort?: EffortLevel;
+  /** "direct" skips the server-side filtering sandbox — see callStructured. */
+  webToolCalling?: "filtered" | "direct";
+  /** "excluded" stops consumed search results being echoed as output tokens. */
+  responseInclusion?: "full" | "excluded";
   onProgress?: OnProgress;
   /** Token accounting, one call per model call. Telemetry only — see anthropic.ts. */
   onUsage?: OnUsage;
@@ -198,6 +204,9 @@ export async function searchProspects(
     // a ~19-turn loop, which is where much of the per-turn latency went.
     maxContentTokens: 8000,
     maxTokens: 8192,
+    effort: opts.effort,
+    webToolCalling: opts.webToolCalling,
+    responseInclusion: opts.responseInclusion,
     onProgress: opts.onProgress,
     signal: opts.signal,
     batch: opts.batchMode,
